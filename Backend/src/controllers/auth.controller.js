@@ -1,6 +1,7 @@
 const userModel = require('../models/user.model');
 const jwt = require('jsonwebtoken');
 const emailService = require("../services/email.service");
+const redisClient = require('../db/redis');
 
 /**
  * - user register controller
@@ -147,7 +148,51 @@ async function userLoginController(req, res) {
   }
 }
 
+
+async function userLogoutController(req, res) {
+  try {
+
+    const token = req.cookies?.token;
+
+    if (!token) {
+      return res.status(400).json({
+        message: "No token found"
+      });
+    }
+
+    const payload = jwt.decode(token);
+
+    if (!payload || !payload.exp) {
+      return res.status(400).json({
+        message: "Invalid token"
+      });
+    }
+
+    // Calculate remaining time in seconds
+    const expiryInSeconds = payload.exp - Math.floor(Date.now() / 1000);
+
+    // Store token in Redis blacklist
+    await redisClient.set(`blacklist:${token}`,"blocked",{EX: expiryInSeconds});
+
+    // Clear cookie
+    res.clearCookie("token");
+
+    return res.status(200).json({
+      message: "Logged out successfully"
+    });
+
+  } catch (err) {
+    console.error("Logout Error:", err.message);
+    return res.status(500).json({
+      message: "Logout failed"
+    });
+  }
+}
+
 module.exports = {
   userRegisterController,
-  userLoginController
+  userLoginController,
+  userLogoutController
 };
+
+

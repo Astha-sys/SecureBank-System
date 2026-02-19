@@ -151,6 +151,80 @@ await emailService.sendTransactionEmail(
 
 }
 
+async function initialFunds(req, res) {
+
+  const { accountId, amount } = req.body;
+
+  if (!accountId || !amount) {
+    return res.status(400).json({
+      message: "accountId and amount are required"
+    });
+  }
+
+  if (amount <= 0) {
+    return res.status(400).json({
+      message: "Amount must be greater than zero"
+    });
+  }
+
+  const account = await accountModel.findById(accountId);
+
+  if (!account) {
+    return res.status(400).json({
+      message: "Invalid accountId"
+    });
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+
+    const transaction = await transactionModel.create([{
+      fromAccount: accountId,   // since required in model
+      toAccount: accountId,
+      amount,
+      idempotencyKey: `INIT-${Date.now()}`,
+      status: "PENDING"
+    }], { session });
+
+    const createdTransaction = transaction[0];
+
+    await ledgerModel.create([{
+      account: accountId,
+      transaction: createdTransaction._id,
+      amount,
+      type: "CREDIT"
+    }], { session });
+
+    createdTransaction.status = "COMPLETED";
+    await createdTransaction.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    const updatedBalance = await account.getBalance();
+
+    return res.status(201).json({
+      message: "Balance added successfully",
+      balance: updatedBalance
+    });
+
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+
+    return res.status(500).json({
+      message: error.message
+    });
+  }
+}
+
+
+
+
 module.exports = {
-  createTransaction
+  createTransaction,
+  initialFunds,
+  
 };

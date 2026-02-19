@@ -5,7 +5,7 @@ const ledgerSchema = new mongoose.Schema(
     account: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "account",
-      required: [true, "Ledger must be associated with an account"],
+      required: true,
       index: true,
       immutable: true
     },
@@ -13,25 +13,28 @@ const ledgerSchema = new mongoose.Schema(
     transaction: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "transaction",
-      required: [true, "Ledger must be associated with a transaction"],
+      required: true,
       index: true,
       immutable: true
     },
 
     type: {
       type: String,
-      enum: {
-        values: ["CREDIT", "DEBIT"],
-        message: "Type can be either CREDIT or DEBIT"
-      },
-      required: [true, "Ledger type is required"],
+      enum: ["CREDIT", "DEBIT"],
+      required: true,
+      immutable: true
+    },
+
+    amount: {                 // 👈 ADD THIS
+      type: Number,
+      required: true,
+      min: 0,
       immutable: true
     }
   },
-  {
-    timestamps: true
-  }
+  { timestamps: true }
 );
+
 
 function preventLedgerModification() {
   throw new Error(
