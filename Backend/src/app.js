@@ -12,12 +12,13 @@ app.use(cors({
   credentials: true
 }));
 
-
 // Routes
-const authRouter = require('./routes/auth.route');      // Auth routes
-const accountRouter = require("./routes/account.route"); // Account routes
+const authRouter = require('./routes/auth.route');
+const accountRouter = require("./routes/account.route");
+const transactionRouter = require('./routes/transaction.route');  // 👈 ADD THIS
 
-app.use('/api/auth', authRouter);        // Authentication APIs
-app.use('/api/accounts', accountRouter); // Account APIs
+app.use('/api/auth', authRouter);
+app.use('/api/accounts', accountRouter);
+app.use('/api/transactions', transactionRouter);  // 👈 ADD THIS
 
 module.exports = app;
