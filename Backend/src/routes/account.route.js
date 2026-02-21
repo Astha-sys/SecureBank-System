@@ -4,10 +4,9 @@ const accountController = require("../controllers/account.controller");
 
 const router = express.Router();
 
-// Create Account
-router.post("/",authMiddleware.authMiddleware,accountController.createAccountController);
+router.post("/", authMiddleware.authMiddleware, accountController.createAccountController);
+router.get("/", authMiddleware.authMiddleware, accountController.getUserAccountsController);
+router.get("/balance/:accountId", authMiddleware.authMiddleware, accountController.getAccountBalanceController);
 
-// Get Account Balance (Secure)
-router.get("/balance/:accountId",authMiddleware.authMiddleware,accountController.getAccountBalanceController);
 
 module.exports = router;
