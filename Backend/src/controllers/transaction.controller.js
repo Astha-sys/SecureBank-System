@@ -92,8 +92,10 @@ async function createTransaction(req, res) {
     });
   }
 
-  /* ---------- Step 6: Start MongoDB Session ---------- */
-  const session = await mongoose.startSession();
+ /* ---------- Step 6: Start MongoDB Session ---------- */
+const session = await mongoose.startSession();
+
+try {
   session.startTransaction();
 
   /* ---------- Step 7: Create Transaction (PENDING) ---------- */
@@ -131,22 +133,48 @@ async function createTransaction(req, res) {
 
   /* ---------- Step 10: Commit Transaction ---------- */
   await session.commitTransaction();
-  session.endSession();
 
-  /* ---------- Step 11: Send Email Notification ---------- */
+  /* ---------- Step 11: Emit Real-Time Notification ---------- */
+  const io = req.app.get("io");
 
-await emailService.sendTransactionEmail(
-  req.user?.email,
-  req.user?.username,
-  amount,
-  toUserAccount._id
-);
+  io.emit("transactionNotification", {
+    message: "Transaction successful",
+    transactionId: createdTransaction._id,
+    amount,
+    fromAccount,
+    toAccount
+  });
+
+  /* ---------- Step 12: Send Email Notification ---------- */
+  try {
+    await emailService.sendTransactionEmail(
+      req.user?.email,
+      req.user?.username,
+      amount,
+      toUserAccount._id
+    );
+  } catch (emailError) {
+    console.error("Email failed:", emailError.message);
+  }
 
   return res.status(201).json({
     message: "Transaction completed successfully",
     transaction: createdTransaction
   });
 
+} catch (error) {
+
+  /* ---------- If Anything Fails ---------- */
+  await session.abortTransaction();
+
+  return res.status(500).json({
+    message: "Transaction failed",
+    error: error.message
+  });
+
+} finally {
+  session.endSession();
+}
     
 
 }

@@ -1,37 +1,40 @@
 import axios from "axios";
 
-const API_BASE_URL = "http://localhost:3000";
+const API_BASE_URL = "http://localhost:3000/api";
 
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     "Content-Type": "application/json",
   },
+  withCredentials: true,
 });
 
 // Attach JWT token to every request
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
-  if (token) {
+  if (token && config.headers) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-// Auth API
+/* ================= AUTH ================= */
+
 export const authApi = {
   register: (data: { username: string; email: string; password: string }) =>
-    api.post("/api/auth/register", data, { withCredentials: true }),
+    api.post("/auth/register", data),
 
   login: (data: { email: string; password: string }) =>
-    api.post("/api/auth/login", data, { withCredentials: true }),
+    api.post("/auth/login", data),
 };
 
+/* ================= ACCOUNTS ================= */
 
-// Account API
 export const accountApi = {
-  create: (data: { accountType: string }) =>
-    api.post("/api/accounts", data),
+  create: () => api.post("/accounts"),
+
+  getAll: () => api.get("/accounts"),
 };
 
 export default api;

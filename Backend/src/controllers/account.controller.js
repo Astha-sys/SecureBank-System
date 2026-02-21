@@ -43,9 +43,37 @@ async function getAccountBalanceController(req, res) {
   });
 }
 
+async function getUserAccountsController(req, res) {
+  try {
+    const accounts = await accountModel.find({
+      user: req.user._id
+    });
+
+    const accountsWithBalance = await Promise.all(
+      accounts.map(async (account) => {
+        const balance = await account.getBalance();
+        return {
+          _id: account._id,
+          status: account.status,
+          currency: account.currency,
+          balance
+        };
+      })
+    );
+
+    return res.status(200).json(accountsWithBalance);
+
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to fetch accounts"
+    });
+  }
+}
+
 module.exports = {
   createAccountController,
-  getAccountBalanceController
+  getAccountBalanceController,
+  getUserAccountsController
 };
 
 
