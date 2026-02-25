@@ -2,30 +2,19 @@ const mongoose = require("mongoose");
 const transactionModel = require("../models/transaction.model");
 const accountModel = require("../models/account.model");
 const ledgerModel = require("../models/ledger.model");
-const emailService = require("../services/email.service")
+const emailService = require("../services/email.service");
+const { v4: uuidv4 } = require("uuid");
 
-/*
-  Create Transaction API Flow
 
-  1. Validate input
-  2. Verify accounts
-  3. Validate idempotency key
-  4. Check account status
-  5. Check sender balance
-  6. Create transaction (PENDING)
-  7. Create ledger entries
-  8. Mark transaction COMPLETED
-  9. Commit session
-*/
 
 async function createTransaction(req, res) {
 
   /* ---------- Step 1: Validate Input ---------- */
-  const { fromAccount, toAccount, amount, idempotencyKey } = req.body;
+  let { fromAccount, toAccount, amount, idempotencyKey } = req.body;
 
-  if (!fromAccount || !toAccount || !amount || !idempotencyKey) {
+  if (!fromAccount || !toAccount || !amount) {
     return res.status(400).json({
-      message: "fromAccount, toAccount, amount and idempotencyKey are required"
+      message: "fromAccount, toAccount and amount are required"
     });
   }
 
@@ -33,6 +22,11 @@ async function createTransaction(req, res) {
     return res.status(400).json({
       message: "Amount must be greater than zero"
     });
+  }
+
+  //  Auto-generate idempotency key if not provided
+  if (!idempotencyKey) {
+    idempotencyKey = uuidv4();
   }
 
   /* ---------- Step 2: Verify Accounts ---------- */
@@ -45,138 +39,141 @@ async function createTransaction(req, res) {
     });
   }
 
-  /* ---------- Step 3: Validate Idempotency Key ---------- */
+  /* ---------- Step 3: Idempotency ---------- */
   const existingTransaction = await transactionModel.findOne({ idempotencyKey });
 
   if (existingTransaction) {
-
-    if (existingTransaction.status === "COMPLETED") {
-      return res.status(200).json({
-        message: "Transaction already processed",
-        transaction: existingTransaction
-      });
-    }
-
-    if (existingTransaction.status === "PENDING") {
-      return res.status(409).json({
-        message: "Transaction is already in progress"
-      });
-    }
-
-    if (existingTransaction.status === "FAILED") {
-      return res.status(400).json({
-        message: "Previous transaction attempt failed"
-      });
-    }
-
-    if (existingTransaction.status === "REVERSED") {
-      return res.status(500).json({
-        message: "Transaction was reversed, please retry"
-      });
-    }
+    return res.status(200).json({
+      message: "Transaction already exists",
+      transaction: existingTransaction
+    });
   }
 
-  /* ---------- Step 4: Check Account Status ---------- */
+  /* ---------- Step 4: Account Status ---------- */
   if (fromUserAccount.status !== "ACTIVE" || toUserAccount.status !== "ACTIVE") {
     return res.status(400).json({
       message: "Both accounts must be ACTIVE"
     });
   }
 
-  /* ---------- Step 5: Check Sender Balance ---------- */
+  /* ---------- Step 5: Balance Check ---------- */
   const balance = await fromUserAccount.getBalance();
 
   if (balance < amount) {
     return res.status(400).json({
-      message: `Insufficient balance. Current balance is ${balance}.Requested amount ${amount}`
+      message: `Insufficient balance. Current balance is ${balance}`
     });
   }
 
- /* ---------- Step 6: Start MongoDB Session ---------- */
-const session = await mongoose.startSession();
+  /* ---------- Risk Engine ---------- */
+  const HIGH_VALUE_LIMIT = 50000;
 
-try {
-  session.startTransaction();
+  let riskScore = 0;
+  let riskReason = "Normal Transaction";
+  let isHighValue = false;
 
-  /* ---------- Step 7: Create Transaction (PENDING) ---------- */
-  const transaction = await transactionModel.create([{
-    fromAccount,
-    toAccount,
-    amount,
-    idempotencyKey,
-    status: "PENDING"
-  }], { session });
-
-  const createdTransaction = transaction[0];
-
-  /* ---------- Step 8: Create Ledger Entries ---------- */
-
-  // Debit sender
-  await ledgerModel.create([{
-    account: fromAccount,
-    transaction: createdTransaction._id,
-    amount,
-    type: "DEBIT"
-  }], { session });
-
-  // Credit receiver
-  await ledgerModel.create([{
-    account: toAccount,
-    transaction: createdTransaction._id,
-    amount,
-    type: "CREDIT"
-  }], { session });
-
-  /* ---------- Step 9: Mark Transaction COMPLETED ---------- */
-  createdTransaction.status = "COMPLETED";
-  await createdTransaction.save({ session });
-
-  /* ---------- Step 10: Commit Transaction ---------- */
-  await session.commitTransaction();
-
-  /* ---------- Step 11: Emit Real-Time Notification ---------- */
-  const io = req.app.get("io");
-
-  io.emit("transactionNotification", {
-    message: "Transaction successful",
-    transactionId: createdTransaction._id,
-    amount,
-    fromAccount,
-    toAccount
-  });
-
-  /* ---------- Step 12: Send Email Notification ---------- */
-  try {
-    await emailService.sendTransactionEmail(
-      req.user?.email,
-      req.user?.username,
-      amount,
-      toUserAccount._id
-    );
-  } catch (emailError) {
-    console.error("Email failed:", emailError.message);
+  if (amount > HIGH_VALUE_LIMIT) {
+    riskScore = 40;
+    riskReason = "High Amount Transaction";
+    isHighValue = true;
   }
 
-  return res.status(201).json({
-    message: "Transaction completed successfully",
+  /* ---------- Start MongoDB Session ---------- */
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+
+    /* ---------- Create Transaction ---------- */
+    const transaction = await transactionModel.create([{
+      fromAccount,
+      toAccount,
+      amount,
+      idempotencyKey,
+      status: isHighValue ? "PENDING" : "COMPLETED",
+      riskScore,
+      riskReason
+    }], { session });
+
+    const createdTransaction = transaction[0];
+
+    /* ---------- If NOT High Value → Process Ledger ---------- */
+    if (!isHighValue) {
+
+      await ledgerModel.create([{
+        account: fromAccount,
+        transaction: createdTransaction._id,
+        amount,
+        type: "DEBIT"
+      }], { session });
+
+      await ledgerModel.create([{
+        account: toAccount,
+        transaction: createdTransaction._id,
+        amount,
+        type: "CREDIT"
+      }], { session });
+    }
+
+   await session.commitTransaction();
+  
+    /* ---------- High Value Response ---------- */
+    if (isHighValue) {
+
+  try {
+    await emailService.sendHighValueAlertEmail(
+      req.user?.email,
+      req.user?.username,
+      amount
+    );
+  } catch (emailError) {
+    console.error("High value email failed:", emailError.message);
+  }
+
+  return res.status(202).json({
+    message: "High value transaction pending confirmation",
     transaction: createdTransaction
   });
+   }
 
-} catch (error) {
+    /* ---------- Normal Success Flow ---------- */
 
-  /* ---------- If Anything Fails ---------- */
-  await session.abortTransaction();
+    const io = req.app.get("io");
 
-  return res.status(500).json({
-    message: "Transaction failed",
-    error: error.message
-  });
+    io.emit("transactionNotification", {
+      message: "Transaction successful",
+      transactionId: createdTransaction._id,
+      amount
+    });
 
-} finally {
-  session.endSession();
-}
-    
+    try {
+      await emailService.sendTransactionEmail(
+        req.user?.email,
+        req.user?.username,
+        amount,
+        toUserAccount._id
+      );
+    } catch (emailError) {
+      console.error("Email failed:", emailError.message);
+    }
 
+    return res.status(201).json({
+      message: "Transaction completed successfully",
+      transaction: createdTransaction
+    });
+
+  } catch (error) {
+
+    await session.abortTransaction();
+
+    return res.status(500).json({
+      message: "Transaction failed",
+      error: error.message
+    });
+
+  } finally {
+    session.endSession();
+  }
 }
 
 async function initialFunds(req, res) {
@@ -248,11 +245,184 @@ async function initialFunds(req, res) {
   }
 }
 
+async function confirmTransaction(req, res) {
+
+  const { transactionId } = req.params;
+
+  const transaction = await transactionModel.findById(transactionId);
+
+  if (!transaction) {
+    return res.status(404).json({
+      message: "Transaction not found"
+    });
+  }
+
+  if (transaction.status !== "PENDING") {
+    return res.status(400).json({
+      message: "Transaction is not pending"
+    });
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+
+    // Debit sender
+    await ledgerModel.create([{
+      account: transaction.fromAccount,
+      transaction: transaction._id,
+      amount: transaction.amount,
+      type: "DEBIT"
+    }], { session });
+
+    // Credit receiver
+    await ledgerModel.create([{
+      account: transaction.toAccount,
+      transaction: transaction._id,
+      amount: transaction.amount,
+      type: "CREDIT"
+    }], { session });
+
+    transaction.status = "COMPLETED";
+    await transaction.save({ session });
+
+    await session.commitTransaction();
+
+    // Emit socket
+    const io = req.app.get("io");
+    io.emit("transactionNotification", {
+      message: "High value transaction confirmed",
+      transactionId: transaction._id,
+      amount: transaction.amount
+    });
+
+    return res.status(200).json({
+      message: "Transaction confirmed successfully",
+      transaction
+    });
+
+  } catch (error) {
+
+    await session.abortTransaction();
+
+    return res.status(500).json({
+      message: "Confirmation failed",
+      error: error.message
+    });
+
+  } finally {
+    session.endSession();
+  }
+}
+
+async function getPendingTransactions(req, res) {
+  try {
+    const pendingTransactions = await transactionModel
+      .find({ status: "PENDING" })
+      .populate("fromAccount toAccount");
+
+    return res.status(200).json({
+      count: pendingTransactions.length,
+      transactions: pendingTransactions
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to fetch pending transactions",
+      error: error.message
+    });
+  }
+}
+
+async function cancelTransaction(req, res) {
+
+  const { transactionId } = req.params;
+
+  const transaction = await transactionModel.findById(transactionId);
+
+  if (!transaction) {
+    return res.status(404).json({
+      message: "Transaction not found"
+    });
+  }
+
+  if (transaction.status !== "PENDING") {
+    return res.status(400).json({
+      message: "Only pending transactions can be cancelled"
+    });
+  }
+
+  transaction.status = "REVERSED";
+  await transaction.save();
+
+  return res.status(200).json({
+    message: "Transaction cancelled successfully",
+    transaction
+  });
+}
+
+async function getDashboardStats(req, res) {
+  try {
+
+    const totalTransactions = await transactionModel.countDocuments();
+    const completedTransactions = await transactionModel.countDocuments({ status: "COMPLETED" });
+    const pendingTransactions = await transactionModel.countDocuments({ status: "PENDING" });
+    const reversedTransactions = await transactionModel.countDocuments({ status: "REVERSED" });
+
+    // Total money transferred (only completed)
+    const totalTransferredAgg = await transactionModel.aggregate([
+      { $match: { status: "COMPLETED" } },
+      { $group: { _id: null, total: { $sum: "$amount" } } }
+    ]);
+
+    const totalAmountTransferred = totalTransferredAgg[0]?.total || 0;
+
+    // High risk transactions
+    const highRiskTransactions = await transactionModel.countDocuments({
+      riskScore: { $gt: 0 }
+    });
+
+    // Risk percentage
+    const riskPercentage =
+      totalTransactions > 0
+        ? ((highRiskTransactions / totalTransactions) * 100).toFixed(2)
+        : 0;
+
+    // Latest 5 transactions
+    const recentTransactions = await transactionModel
+      .find()
+      .sort({ createdAt: -1 })
+      .limit(5);
+
+    return res.status(200).json({
+      totalTransactions,
+      completedTransactions,
+      pendingTransactions,
+      reversedTransactions,
+      totalAmountTransferred,
+      highRiskTransactions,
+      riskPercentage,
+      recentTransactions
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to fetch dashboard stats",
+      error: error.message
+    });
+  }
+}
+
 
 
 
 module.exports = {
   createTransaction,
   initialFunds,
+  confirmTransaction,
+  getPendingTransactions,
+  cancelTransaction,
+  getDashboardStats
   
 };

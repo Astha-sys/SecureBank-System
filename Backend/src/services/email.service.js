@@ -149,6 +149,33 @@ Backend Ledger Team`;
   await sendEmail(userEmail, subject, text, html);
 }
 
+
+async function sendHighValueAlertEmail(userEmail, name, amount) {
+  const subject = "High Value Transaction Requires Confirmation";
+
+  const text = `Hi ${name},
+
+A high value transaction of ₹${amount} has been initiated.
+
+For security reasons, it is currently pending confirmation.
+
+Please confirm it from your dashboard.
+
+Backend Ledger Team`;
+
+  const html = `
+  <div style="font-family: Arial;">
+    <h2 style="color:#f39c12;">High Value Transaction Alert</h2>
+    <p>Hi <strong>${name}</strong>,</p>
+    <p>A transaction of <strong>₹${amount}</strong> is pending confirmation.</p>
+    <p>Please confirm it from your dashboard.</p>
+    <p><strong>Backend Ledger Team</strong></p>
+  </div>
+  `;
+
+  await sendEmail(userEmail, subject, text, html);
+}
+
 /* ----------------------------------------------------
    Export All Functions
 ---------------------------------------------------- */
@@ -157,4 +184,5 @@ module.exports = {
   sendRegistrationEmail,
   sendTransactionEmail,
   sendTransactionFailureEmail,
+  sendHighValueAlertEmail
 };

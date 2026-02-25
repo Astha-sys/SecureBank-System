@@ -32,6 +32,18 @@ const transactionSchema = new mongoose.Schema(
       min: [0, "Transaction amount cannot be negative"]
     },
 
+    // 🔥 NEW FIELD 1 — Risk Score
+    riskScore: {
+      type: Number,
+      default: 0
+    },
+
+    // 🔥 NEW FIELD 2 — Risk Reason (human readable)
+    riskReason: {
+      type: String,
+      default: "Normal Transaction"
+    },
+
     idempotencyKey: {
       type: String,
       required: [true, "Idempotency Key is required for creating a transaction"],

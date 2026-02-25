@@ -10,6 +10,12 @@ const transactionRouter = express.Router();
 
 transactionRouter.post("/", authMiddleware.authMiddleware,transactionController.createTransaction)
 transactionRouter.post("/initial-funds",authMiddleware.authMiddleware,transactionController.initialFunds);
+//  Confirm High Value Transaction
+transactionRouter.post( "/confirm/:transactionId",authMiddleware.authMiddleware,transactionController.confirmTransaction);
+transactionRouter.get("/pending",authMiddleware.authMiddleware,transactionController.getPendingTransactions);
+transactionRouter.post("/cancel/:transactionId",authMiddleware.authMiddleware,transactionController.cancelTransaction);
+transactionRouter.get("/dashboard-stats",authMiddleware.authMiddleware,transactionController.getDashboardStats);
+
 
 
 
