@@ -2,11 +2,16 @@ const accountModel = require("../models/account.model");
 
 async function createAccountController(req, res) {
   try {
-    // Create new account for logged-in user
     const user = req.user;
 
+    //  Generate 10-digit account number
+    const accountNumber = Math.floor(
+      1000000000 + Math.random() * 9000000000
+    ).toString();
+
     const account = await accountModel.create({
-      user: user._id
+      user: user._id,
+      accountNumber
     });
 
     return res.status(201).json({
@@ -14,6 +19,7 @@ async function createAccountController(req, res) {
     });
 
   } catch (error) {
+    console.error(error);
     return res.status(500).json({
       message: "Failed to create account"
     });

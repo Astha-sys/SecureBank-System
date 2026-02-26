@@ -10,6 +10,13 @@ const accountSchema = new mongoose.Schema(
       index: true
     },
 
+    // ✅ NEW FIELD (Safe Addition)
+    accountNumber: {
+      type: String,
+      unique: true,
+      required: true
+    },
+
     status: {
       type: String,
       enum: {
@@ -35,17 +42,14 @@ accountSchema.index({ user: 1, status: 1 });
 accountSchema.methods.getBalance = async function () {
   const balanceData = await ledgerModel.aggregate([
     { $match: { account: this._id } },
-
     {
       $group: {
         _id: null,
-
         totalDebit: {
           $sum: {
             $cond: [{ $eq: ["$type", "DEBIT"] }, "$amount", 0]
           }
         },
-
         totalCredit: {
           $sum: {
             $cond: [{ $eq: ["$type", "CREDIT"] }, "$amount", 0]
@@ -58,7 +62,6 @@ accountSchema.methods.getBalance = async function () {
   if (!balanceData.length) return 0;
 
   const { totalDebit, totalCredit } = balanceData[0];
-
   return totalCredit - totalDebit;
 };
 
