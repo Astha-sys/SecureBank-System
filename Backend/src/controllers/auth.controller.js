@@ -1,6 +1,6 @@
 const userModel = require('../models/user.model');
 const jwt = require('jsonwebtoken');
-const emailService = require("../services/email.service");
+// const emailService = require("../services/email.service");
 const redisClient = require('../db/redis');
 
 /**
@@ -42,15 +42,15 @@ async function userRegisterController(req, res) {
     });
 
     // Send Registration Email (safe handling)
-    try {
-      await emailService.sendRegistrationEmail(
-        user.email,
-        user.username
-      );
-    } catch (emailError) {
-      console.error("Email sending failed:", emailError);
-      // We don't stop registration if email fails
-    }
+    // try {
+    //   await emailService.sendRegistrationEmail(
+    //     user.email,
+    //     user.username
+    //   );
+    // } catch (emailError) {
+    //   console.error("Email sending failed:", emailError);
+    //   // We don't stop registration if email fails
+    // }
 
     // Generate token
     const token = jwt.sign(
