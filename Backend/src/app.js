@@ -30,4 +30,9 @@ app.use("/api/auth", authRouter);
 app.use("/api/accounts", accountRouter);
 app.use("/api/transactions", transactionRouter);
 
+
+app.get("/", (req, res) => {
+  res.send("SecureBank Backend is Live ");
+});
+
 module.exports = app;
